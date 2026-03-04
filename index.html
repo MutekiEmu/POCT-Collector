@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>POCT 标准化数据采集工具</title>
+    <style>
+        /* 核心修改：针对横屏手机显示的样式 */
+        body { margin: 0; padding: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
+        #camera-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+
+        /* 1. 取景框层 (锁定竖屏逻辑) */
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* 橙色大框：竖向长方形 (Width < Height) */
+        /* 无论手机怎么拿，卡壳在屏幕里看起来都是竖着的 */
+        .guide-box-big {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            width: 32vw; height: 60vh; 
+            border: 3px dashed #ff8c00; border-radius: 12px;
+        }
+        
+        /* 绿色小框：横向窄条 (Width > Height) */
+        /* 专门用来“卡”住在那条在视觉上水平显示的 T 线 */
+        .guide-box-small {
+            position: absolute; top: 41%; left: 50%; transform: translate(-50%, -50%);
+            width: 26vw; height: 4vh; 
+            border: 2px solid #00ff00; background: rgba(0, 255, 0, 0.15);
+        }
+
+        /* 2. 控制面板 */
+        /* 全新的控制面板样式：适合手机堆叠显示 */
+        #controls {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            padding: 15px; box-sizing: border-box; background: rgba(0,0,0,0.8);
+            display: flex; flex-direction: column; gap: 8px; pointer-events: auto;
+        }
+        
+        /* 指标1输入框组 */
+        .input-row-group { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+        
+        /* 设置每个输入框单独一排 */
+        input { 
+            width: 95%; padding: 10px; border: none; border-radius: 5px; 
+            background: #333; color: #fff; font-size: 14px; 
+            box-sizing: border-box; margin: 0 auto;
+        }
+
+        .btn-group { display: flex; gap: 10px; width: 100%; margin-top: 5px; }
+        button { 
+            flex: 1; padding: 12px; border: none; border-radius: 5px; 
+            font-size: 15px; font-weight: bold; cursor: pointer;
+        }
+        #snap-btn { background: #007bff; color: white; }
+        #torch-btn { background: #6c757d; color: white; }
+
+        /* 3. 状态显示 */
+        #status-bar {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            font-size: 14px; text-shadow: 1px 1px 2px #000;
+        }
+        .low-light { color: #ff4444; font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+    </style>
+
+    <div id="camera-container">
+        <video id="video" autoplay playsinline></video>
+        <div id="overlay">
+            <div class="guide-box-big"></div>
+            <div class="guide-box-small"></div>
+        </div>
+        <div id="status-bar">环境检测中...</div>
+        
+        <div id="controls">
+        <input type="text" id="sample-id" placeholder="样品号 (如:G01)">
+        
+        <div class="input-row-group">
+            <input type="number" id="conc-1" placeholder="指标1浓度">
+            <input type="number" id="conc-2" placeholder="指标2浓度">
+        </div>
+
+        <div class="btn-group">
+            <button id="torch-btn">开启补光</button>
+            <button id="snap-btn">确认拍摄</button>
+        </div>
+    </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const statusBar = document.getElementById('status-bar');
+    const torchBtn = document.getElementById('torch-btn');
+    const snapBtn = document.getElementById('snap-btn');
+    
+    let videoTrack = null;
+    let torchOn = false;
+
+    // 1. 启动摄像头
+    async function initCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', focusMode: 'continuous', exposureMode: 'continuous' }
+            });
+            video.srcObject = stream;
+            videoTrack = stream.getVideoTracks()[0];
+        } catch (err) {
+            alert("无法访问摄像头: " + err);
+        }
+    }
+
+    // 2. 实时光照监测 (每500ms采样一次)
+    function monitorLight() {
+        const ctx = canvas.getContext('2d');
+        canvas.width = 64; // 低分辨率采样提高性能
+        canvas.height = 64;
+        
+        setInterval(() => {
+            if (!videoTrack) return;
+            ctx.drawImage(video, 0, 0, 64, 64);
+            const data = ctx.getImageData(0, 0, 64, 64).data;
+            let brightness = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+            }
+            brightness /= (64 * 64);
+            
+            if (brightness < 60) {
+                statusBar.innerHTML = `<span class="low-light">⚠️ 光线太暗 (亮度: ${Math.round(brightness)})，请开启补光或改善光照</span>`;
+            } else {
+                statusBar.innerHTML = `环境光照良好 (亮度: ${Math.round(brightness)})`;
+            }
+        }, 500);
+    }
+
+    // 3. 补光灯控制 (仅部分安卓支持)
+    torchBtn.onclick = async () => {
+        if (!videoTrack) return;
+        try {
+            torchOn = !torchOn;
+            await videoTrack.applyConstraints({
+                advanced: [{ torch: torchOn }]
+            });
+            torchBtn.innerText = torchOn ? "关闭补光" : "开启补光";
+            torchBtn.style.background = torchOn ? "#ffc107" : "#6c757d";
+        } catch (err) {
+            alert("该设备不支持手电筒控制");
+        }
+    };
+
+    // 4. 拍摄并自动重命名保存
+    snapBtn.onclick = () => {
+        const sid = document.getElementById('sample-id').value || "UNK";
+        const c1 = document.getElementById('conc-1').value || "0";
+        const c2 = document.getElementById('conc-2').value || "0";
+        
+        // 时间
+         const now = new Date();
+        const timeStr = now.getFullYear().toString() + 
+                        (now.getMonth() + 1).toString().padStart(2, '0') + 
+                        now.getDate().toString().padStart(2, '0') + "_" + 
+                        now.getHours().toString().padStart(2, '0') + 
+                        now.getMinutes().toString().padStart(2, '0');
+
+        // 渲染到画布
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        // 构造文件名: 样号_指标1_指标2_时间戳.jpg
+        const timestamp = new Date().getTime();
+        const filename = `${sid}_C1-${c1}_C2-${c2}_T-${timeStr}.jpg`;
+        
+        // 下载图片
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/jpeg', 0.95);
+        link.click();
+    };
+
+    initCamera();
+    monitorLight();
+</script>
+</body>
+</html>
