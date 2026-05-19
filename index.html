@@ -3,95 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>POCT 数据采集 - 优化版</title>
+    <title>POCT 数据采集 - UI优化版</title>
     <style>
-        body { margin: 0; padding: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-        #camera-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        /* 强制满屏且禁止滚动 */
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        
+        #camera-container { 
+            position: relative; 
+            width: 100%; 
+            height: 100%; 
+            display: flex; 
+            flex-direction: column; 
+        }
+
+        /* 视频区域：占据上方剩余空间 */
+        #video-wrapper {
+            position: relative;
+            flex: 1; /* 自动撑满 */
+            width: 100%;
+            overflow: hidden;
+        }
         video { width: 100%; height: 100%; object-fit: cover; }
 
         #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         
-        /* 橙色大框 (70x20) */
+        /* 橙色大框：改为相对视频区域高度计算，防止挤压 */
         .guide-box-big {
             position: absolute; 
-            top: 40%; 
+            top: 50%; 
             left: 50%; 
             transform: translate(-50%, -50%);
-            width: 20vh;   
-            height: 70vh;  
+            width: 18vh;   
+            height: 63vh;  
             border: 3px dashed #ff8c00; 
             border-radius: 8px;
-            box-sizing: border-box;
         }
         
-        /* 绿色窗格 (放大了2mm边距版本) */
+        /* 绿色窗格：保持比例 */
         .guide-box-window {
             position: absolute; 
             left: 50%; 
             transform: translateX(-50%);
-            top: 31.43%;    /* 物理 22mm 处 */
-            height: 28.57%; /* 物理 20mm 高 */
-            width: 30%;     /* 物理 6mm 宽 */
+            top: 31.43%;    
+            height: 28.57%; 
+            width: 30%;     
             border: 2px solid #00ff00; 
             background: rgba(0, 255, 0, 0.15);
-            box-sizing: border-box;
-            box-shadow: 0 0 10px rgba(0,255,0,0.3);
         }
 
+        /* 控制面板：固定在底部，压缩高度 */
         #controls {
-            position: absolute; bottom: 0; left: 0; width: 100%;
-            padding: 15px; box-sizing: border-box; background: rgba(0,0,0,0.85);
-            display: flex; flex-direction: column; gap: 10px; pointer-events: auto;
-            border-top: 1px solid #444;
+            width: 100%;
+            padding: 10px; 
+            box-sizing: border-box; 
+            background: rgba(20, 20, 20, 0.95);
+            display: flex; 
+            flex-direction: column; 
+            gap: 6px; 
+            border-top: 1px solid #333;
         }
         
-        .input-group { display: flex; gap: 8px; }
+        .input-group { display: flex; gap: 6px; }
         input { 
-            flex: 1; padding: 12px; border: none; border-radius: 6px; 
-            background: #2a2a2a; color: #fff; font-size: 15px; 
-            box-sizing: border-box; outline: none;
+            flex: 1; padding: 8px 10px; border: none; border-radius: 4px; 
+            background: #2a2a2a; color: #fff; font-size: 14px; 
+            outline: none;
         }
-        input:focus { background: #333; border: 1px solid #007bff; }
 
-        .btn-group { display: flex; gap: 10px; }
+        .btn-group { display: flex; gap: 8px; margin-top: 2px; }
         button { 
-            flex: 1; padding: 14px; border: none; border-radius: 6px; 
-            font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s;
+            flex: 1; padding: 10px; border: none; border-radius: 4px; 
+            font-size: 14px; font-weight: bold; cursor: pointer;
         }
         #snap-btn { background: #28a745; color: white; }
-        #snap-btn:active { background: #218838; }
-        #torch-btn { background: #495057; color: white; }
+        #torch-btn { background: #444; color: white; }
 
         #status-bar {
-            position: absolute; top: 15px; width: 100%; text-align: center;
-            font-size: 13px; background: rgba(0,0,0,0.5); padding: 5px 0;
+            position: absolute; top: 10px; width: 100%; text-align: center;
+            font-size: 12px; background: rgba(0,0,0,0.4); color: #ccc;
         }
-        .low-light { color: #ffbb33; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div id="camera-container">
-        <video id="video" autoplay playsinline></video>
-        <div id="overlay">
-            <div class="guide-box-big">
-                <div class="guide-box-window"></div>
+        <div id="video-wrapper">
+            <video id="video" autoplay playsinline></video>
+            <div id="overlay">
+                <div class="guide-box-big">
+                    <div class="guide-box-window"></div>
+                </div>
             </div>
+            <div id="status-bar">初始化...</div>
         </div>
-        <div id="status-bar">初始化摄像头...</div>
         
         <div id="controls">
+            <input type="text" id="sample-id" placeholder="样号 (如:G01)">
             <div class="input-group">
-                <input type="text" id="sample-id" placeholder="样号 (如:G01)">
+                <input type="number" id="conc-1" placeholder="指标1">
+                <input type="number" id="conc-2" placeholder="指标2">
             </div>
-            <div class="input-group">
-                <input type="number" id="conc-1" placeholder="指标1浓度">
-                <input type="number" id="conc-2" placeholder="指标2浓度">
-            </div>
-
             <div class="btn-group">
                 <button id="torch-btn">补光灯</button>
-                <button id="snap-btn">确认拍摄并下载</button>
+                <button id="snap-btn">拍照下载</button>
             </div>
         </div>
     </div>
@@ -116,7 +130,7 @@
             video.srcObject = stream;
             videoTrack = stream.getVideoTracks()[0];
         } catch (err) {
-            statusBar.innerHTML = "摄像头访问失败";
+            statusBar.innerHTML = "摄像头连接失败";
         }
     }
 
@@ -130,10 +144,8 @@
             let b = 0;
             for (let i = 0; i < data.length; i += 4) b += (data[i] + data[i+1] + data[i+2]) / 3;
             b /= 4096;
-            statusBar.innerHTML = b < 60 ? 
-                `<span class="low-light">⚠️ 光线不足 (${Math.round(b)})</span>` : 
-                `光照良好 (${Math.round(b)})`;
-        }, 800);
+            statusBar.innerHTML = `光照: ${Math.round(b)} ${b < 60 ? '⚠️ 请开启补光' : '(良好)'}`;
+        }, 1000);
     }
 
     torchBtn.onclick = async () => {
@@ -141,8 +153,9 @@
         try {
             torchOn = !torchOn;
             await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-            torchBtn.style.background = torchOn ? "#ffc107" : "#495057";
-        } catch (e) { alert("设备不支持闪光灯控制"); }
+            torchBtn.style.background = torchOn ? "#ffc107" : "#444";
+            torchBtn.style.color = torchOn ? "#000" : "#fff";
+        } catch (e) { alert("此设备暂不支持Web端闪光灯控制"); }
     };
 
     snapBtn.onclick = () => {
@@ -159,7 +172,7 @@
         
         const link = document.createElement('a');
         link.download = `${sid}_C1-${c1}_C2-${c2}_${time}.jpg`;
-        link.href = canvas.toDataURL('image/jpeg', 0.9);
+        link.href = canvas.toDataURL('image/jpeg', 0.92);
         link.click();
     };
 
