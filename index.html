@@ -132,3 +132,44 @@
     torchBtn.onclick = async () => {
         if (!videoTrack) return;
         try {
+            torchOn = !torchOn;
+            await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+            torchBtn.style.background = torchOn ? "#ffc107" : "#444";
+            torchBtn.style.color = torchOn ? "#000" : "#fff";
+            torchBtn.innerText = torchOn ? "关闭补光" : "开启补光";
+        } catch (e) { alert("此设备/浏览器不支持补光控制"); }
+    };
+
+    // 4. 无损保存
+    snapBtn.onclick = () => {
+        if (video.videoWidth === 0) {
+            alert("摄像头正在初始化，请稍等");
+            return;
+        }
+
+        const sid = document.getElementById('sample-id').value || "NA";
+        const c1 = document.getElementById('conc-1').value || "0";
+        const c2 = document.getElementById('conc-2').value || "0";
+        const now = new Date();
+        const time = now.toISOString().replace(/[:T]/g, '-').slice(0, 16);
+
+        // 强行按照视频源的物理像素尺寸设置 Canvas，不损失一滴画质
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // 把视频帧印上去（去除了水印绘制代码）
+        ctx.drawImage(video, 0, 0);
+
+        // 导出格式改为无损 PNG
+        const link = document.createElement('a');
+        link.download = `${sid}_C1-${c1}_C2-${c2}_${time}.png`;
+        link.href = canvas.toDataURL('image/png'); 
+        link.click();
+    };
+
+    initCamera();
+    monitorLight();
+</script>
+</body>
+</html>
