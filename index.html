@@ -3,85 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>POCT 数据采集 - UI优化版</title>
+    <title>POCT 极清数据采集工具</title>
     <style>
-        /* 强制满屏且禁止滚动 */
+        /* UI 样式：强制满屏，防止输入法弹出时页面乱滚，Flex布局防按钮被遮挡 */
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
         
-        #camera-container { 
-            position: relative; 
-            width: 100%; 
-            height: 100%; 
-            display: flex; 
-            flex-direction: column; 
-        }
-
-        /* 视频区域：占据上方剩余空间 */
-        #video-wrapper {
-            position: relative;
-            flex: 1; /* 自动撑满 */
-            width: 100%;
-            overflow: hidden;
-        }
+        #camera-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
+        #video-wrapper { position: relative; flex: 1; width: 100%; overflow: hidden; }
         video { width: 100%; height: 100%; object-fit: cover; }
 
         #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         
-        /* 橙色大框：改为相对视频区域高度计算，防止挤压 */
+        /* 橙色卡壳框：物理比例 70x20 */
         .guide-box-big {
-            position: absolute; 
-            top: 50%; 
-            left: 50%; 
-            transform: translate(-50%, -50%);
-            width: 18vh;   
-            height: 63vh;  
-            border: 3px dashed #ff8c00; 
-            border-radius: 8px;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 18vh; height: 63vh; border: 3px dashed #ff8c00; border-radius: 8px;
         }
         
-        /* 绿色窗格：保持比例 */
+        /* 绿色视窗：精确物理定位 (上推2mm加宽版) */
         .guide-box-window {
-            position: absolute; 
-            left: 50%; 
-            transform: translateX(-50%);
-            top: 31.43%;    
-            height: 28.57%; 
-            width: 30%;     
-            border: 2px solid #00ff00; 
-            background: rgba(0, 255, 0, 0.15);
+            position: absolute; left: 50%; transform: translateX(-50%);
+            top: 31.43%; height: 28.57%; width: 30%;
+            border: 2px solid #00ff00; background: rgba(0, 255, 0, 0.15); box-shadow: 0 0 10px rgba(0,255,0,0.3);
         }
 
-        /* 控制面板：固定在底部，压缩高度 */
+        /* 底部控制台 */
         #controls {
-            width: 100%;
-            padding: 10px; 
-            box-sizing: border-box; 
-            background: rgba(20, 20, 20, 0.95);
-            display: flex; 
-            flex-direction: column; 
-            gap: 6px; 
-            border-top: 1px solid #333;
+            width: 100%; padding: 10px; box-sizing: border-box; background: rgba(20, 20, 20, 0.95);
+            display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #333; z-index: 10;
         }
-        
         .input-group { display: flex; gap: 6px; }
-        input { 
-            flex: 1; padding: 8px 10px; border: none; border-radius: 4px; 
-            background: #2a2a2a; color: #fff; font-size: 14px; 
-            outline: none;
-        }
-
+        input { flex: 1; padding: 8px 10px; border: none; border-radius: 4px; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; }
+        input:focus { border: 1px solid #007bff; }
+        
         .btn-group { display: flex; gap: 8px; margin-top: 2px; }
-        button { 
-            flex: 1; padding: 10px; border: none; border-radius: 4px; 
-            font-size: 14px; font-weight: bold; cursor: pointer;
-        }
+        button { flex: 1; padding: 10px; border: none; border-radius: 4px; font-size: 14px; font-weight: bold; cursor: pointer; }
         #snap-btn { background: #28a745; color: white; }
         #torch-btn { background: #444; color: white; }
-
-        #status-bar {
-            position: absolute; top: 10px; width: 100%; text-align: center;
-            font-size: 12px; background: rgba(0,0,0,0.4); color: #ccc;
-        }
+        
+        /* 顶部状态栏 */
+        #status-bar { position: absolute; top: 10px; width: 100%; text-align: center; font-size: 12px; background: rgba(0,0,0,0.4); color: #ccc; z-index: 10; }
     </style>
 </head>
 <body>
@@ -94,18 +55,18 @@
                     <div class="guide-box-window"></div>
                 </div>
             </div>
-            <div id="status-bar">初始化...</div>
+            <div id="status-bar">正在请求高清硬件...</div>
         </div>
         
         <div id="controls">
             <input type="text" id="sample-id" placeholder="样号 (如:G01)">
             <div class="input-group">
-                <input type="number" id="conc-1" placeholder="指标1">
-                <input type="number" id="conc-2" placeholder="指标2">
+                <input type="number" id="conc-1" placeholder="指标1浓度">
+                <input type="number" id="conc-2" placeholder="指标2浓度">
             </div>
             <div class="btn-group">
-                <button id="torch-btn">补光灯</button>
-                <button id="snap-btn">拍照下载</button>
+                <button id="torch-btn">开启补光</button>
+                <button id="snap-btn">极清拍照并下载</button>
             </div>
         </div>
     </div>
@@ -122,62 +83,52 @@
     let videoTrack = null;
     let torchOn = false;
 
+    // 1. 暴力解锁手机最高画质
     async function initCamera() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', focusMode: 'continuous' }
+                video: { 
+                    facingMode: 'environment', 
+                    width: { ideal: 4096 },   // 目标4K宽
+                    height: { ideal: 2160 },  // 目标4K高
+                    focusMode: { ideal: 'continuous' } 
+                }
             });
             video.srcObject = stream;
             videoTrack = stream.getVideoTracks()[0];
+
+            // 摄像头加载完毕后，在顶部状态栏展示真实分辨率
+            video.onloadedmetadata = () => {
+                statusBar.innerHTML = `分辨率: ${video.videoWidth}x${video.videoHeight} | 等待测光...`;
+            };
         } catch (err) {
-            statusBar.innerHTML = "摄像头连接失败";
+            statusBar.innerHTML = "摄像头调用失败，请检查浏览器权限";
         }
     }
 
+    // 2. 测光（修复了高分辨率下的采样性能）
     function monitorLight() {
         const ctx = canvas.getContext('2d');
-        canvas.width = 64; canvas.height = 64;
+        // 用一个64x64的低分辨率画布专做测光，不卡顿
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 64; 
+        tempCanvas.height = 64;
+        const tempCtx = tempCanvas.getContext('2d');
+
         setInterval(() => {
-            if (!videoTrack) return;
-            ctx.drawImage(video, 0, 0, 64, 64);
-            const data = ctx.getImageData(0, 0, 64, 64).data;
+            if (!videoTrack || video.videoWidth === 0) return;
+            tempCtx.drawImage(video, 0, 0, 64, 64);
+            const data = tempCtx.getImageData(0, 0, 64, 64).data;
             let b = 0;
             for (let i = 0; i < data.length; i += 4) b += (data[i] + data[i+1] + data[i+2]) / 3;
             b /= 4096;
-            statusBar.innerHTML = `光照: ${Math.round(b)} ${b < 60 ? '⚠️ 请开启补光' : '(良好)'}`;
+            
+            const res = `${video.videoWidth}x${video.videoHeight}`;
+            statusBar.innerHTML = `[流: ${res}] 光照: ${Math.round(b)} ${b < 60 ? '⚠️请补光' : '(良好)'}`;
         }, 1000);
     }
 
+    // 3. 控制手电筒
     torchBtn.onclick = async () => {
         if (!videoTrack) return;
         try {
-            torchOn = !torchOn;
-            await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-            torchBtn.style.background = torchOn ? "#ffc107" : "#444";
-            torchBtn.style.color = torchOn ? "#000" : "#fff";
-        } catch (e) { alert("此设备暂不支持Web端闪光灯控制"); }
-    };
-
-    snapBtn.onclick = () => {
-        const sid = document.getElementById('sample-id').value || "NA";
-        const c1 = document.getElementById('conc-1').value || "0";
-        const c2 = document.getElementById('conc-2').value || "0";
-        const now = new Date();
-        const time = now.toISOString().replace(/[:T]/g, '-').slice(0, 16);
-
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-        
-        const link = document.createElement('a');
-        link.download = `${sid}_C1-${c1}_C2-${c2}_${time}.jpg`;
-        link.href = canvas.toDataURL('image/jpeg', 0.92);
-        link.click();
-    };
-
-    initCamera();
-    monitorLight();
-</script>
-</body>
-</html>
